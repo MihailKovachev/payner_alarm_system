@@ -1,6 +1,8 @@
 [ProjectGroup]
 Version=1.0
+
 [Project1]
 ProjectPath=Emitter\Emitter.PrjPcb
+
 [Project2]
 ProjectPath=Receiver\Receiver.PrjPcb
