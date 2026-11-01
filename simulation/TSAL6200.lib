@@ -1,0 +1,2 @@
+* TSAL6200 Infrared Emitting Diode Model
+.MODEL TSAL6200 D (IS=5.1p RS=1.25 N=2.0 EG=1.35 CJO=25p VJ=0.85 M=0.33 BV=5 IBV=10u TT=15n)

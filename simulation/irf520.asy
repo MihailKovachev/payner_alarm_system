@@ -1,0 +1,30 @@
+Version 4
+SymbolType BLOCK
+LINE Normal -16 32 -16 -32
+LINE Normal 0 10 0 -10
+LINE Normal 0 -22 0 -42
+LINE Normal 0 42 0 22
+LINE Normal -16 32 -80 32
+LINE Normal 16 -10 0 0
+LINE Normal 16 10 16 -10
+LINE Normal 0 0 16 10
+LINE Normal 32 0 32 32
+LINE Normal 32 -32 0 -32
+LINE Normal 32 -48 32 -32
+LINE Normal 32 48 32 32
+LINE Normal 0 32 32 32
+LINE Normal 16 0 32 0
+WINDOW 0 68 -5 Bottom 2
+WINDOW 3 80 2 Top 2
+SYMATTR Value IRF520
+SYMATTR Prefix X
+SYMATTR ModelFile irf520.lib
+PIN -80 32 LEFT 8
+PINATTR PinName G
+PINATTR SpiceOrder 2
+PIN 32 -48 RIGHT 8
+PINATTR PinName D
+PINATTR SpiceOrder 1
+PIN 32 48 RIGHT 8
+PINATTR PinName S
+PINATTR SpiceOrder 3
