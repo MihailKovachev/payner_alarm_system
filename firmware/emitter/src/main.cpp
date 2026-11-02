@@ -54,13 +54,13 @@ ISR(TIMER0_COMPA_vect)
             case TimerState::Pulse:
             {
                 timerState = TimerState::Gap;
-                TCCR0A &= ~(1 << COM0B1); // Disconnect output OC0B
+                OCR0B = 0; // 0% duty cycle (turns off 38 kHz pulses)
                 break;
             }
             case TimerState::Gap:
             {
                 timerState = TimerState::Pulse;
-                TCCR0A |= (1 << COM0B1); // Enable output OC0B
+                OCR0B = 26; // 50% duty cycle (38 kHz burst)
                 break;
             }
         }
@@ -77,8 +77,7 @@ int main()
     TCCR0A = (1 << COM0B1) | (1 << WGM01) | (1 << WGM00);
     TCCR0B = (1 << WGM02) | (1 << CS01);
 
-    // Prescaler = 8 -> f_timer = 2 MHz
-    OCR0A = 52; 
+    OCR0A = 52; // ~ 37.74 kHz
     OCR0B = 26; // 50% duty cycle
 
     // Enable TIMER0_COMPA_vect
