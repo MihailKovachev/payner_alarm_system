@@ -15,25 +15,88 @@ prescaler_real = 256
 OCR0A = f_clk / (prescaler_real * f_ctc_int) - 1 = 97
 */
 
+enum class AlarmState : uint8_t
+{
+    Armed,
+    Disarmed,
+    Triggered
+};
+
 volatile uint8_t detectedBurstsCount = 0;
-volatile uint8_t alarmTriggered = 0;
+volatile AlarmState alarmState = AlarmState::Armed;
+volatile bool isBuzzerBuzzing = false;
+volatile bool isRedLEDBlinking = false;
 
 ISR(TIMER0_COMPA_vect)
 {
-if (detectedBurstsCount < 1)
+    if (detectedBurstsCount < 1)
     {
-        alarmTriggered = 1;
+        alarmState = AlarmState::Triggered;
     }
-    else
-    {
-        alarmTriggered = 0; // Reset alarm when beam is clear
-    }
+
     detectedBurstsCount = 0;
+
+    // TODO: Arming and disarming logic 
 }
 
+// A falling edge on PD2 (IR receiver output) => 1 complete burst
 ISR(INT0_vect)
 {
     detectedBurstsCount++;
+}
+
+ISR(TIMER1_COMPA_vect)
+{
+    PINB = (1 << PINB5); // Toggles PORTB5
+}
+
+void startBuzzer()
+{
+    /* 
+    CTC frequency (Sound frequency): f_snd = 3kHz = f_ctc
+    prescaler_min = f_clk / (256 * f_ctc) = 21
+    prescaler_real = 32
+
+    OCR2A = round(f_clk / (prescaler_real * f_ctc) - 1) = 166
+    OCR2B = OCR2A / 2 = 83 (50% duty cycle)
+    */
+
+    OCR2A = 166;
+    OCR2B = OCR2A / 2;
+
+    // Set fast PWM mode, enable OC2B (PD3) as output, set prescaler = 32
+    TCCR2A = (1 << COM2B1) | (1 << WGM21) | (1 << WGM20);
+    TCCR2B |= (1 << WGM22) | (1 << CS21) | (1 << CS20);
+
+    TCNT2 = 0;
+    isBuzzerBuzzing = true;
+}
+
+void startRedLEDBlink()
+{
+    /*
+    PB5 does not support hardware PWM => emulation using CTC.
+
+    f_blink = 2 Hz
+    t_on = 1 / f_blink * 0.5 = 250 ms
+    t_off = 250 ms
+
+    f_ctc = 1 / t_on = 4 Hz
+
+    f_clk / (prescaler * f_ctc) = OCR1A + 1 <= 2^16
+    prescaler_min = f_clk / f_ctc * 65536 = 61
+    prescaler = 64
+    OCR1A = round (f_clk / (prescaler * f_ctc) - 1) = 62499
+    */
+
+    TCCR1A = 0;
+    TCCR1B = (1 << WGM12) | (1 << CS11) | (1 << CS10);
+    TIMSK1 = 1 << OCIE0A;
+    OCR1A = 62499;
+    TCNT1 = 0;
+
+    PORTB |= (1 << PORTB5);
+    isRedLEDBlinking = true;
 }
 
 int main()
@@ -42,11 +105,17 @@ int main()
     DDRD &= ~(1 << DDD2);
     PORTD |= (1 << PORTD2); // Internal pull-up
 
-    // Configure PB5 (red LED) and PB4 (yellow LED)
-    // red on + yellow off = alarm primed
-    // red off + yellow on = alarm triggered
-    DDRB |= (1 << DDB5) | (1 << DDB4);
-    PORTB = 1 << PORTB4;
+    // Configure PB5 (red LED) as output
+    DDRB |= 1 << DDB5;
+    PORTB &= ~(1 << PORTB5);
+
+    // Configure PB3 (green LED) as output
+    DDRB |= 1 << DDB3;
+    PORTB |= 1 << PORTB3;
+
+    // Configure PD3 (buzzer) as output
+    DDRD |= 1 << DDD3;
+    PORTD &= ~(1 << PORTD3);
 
     // Timer0 CTC Mode
     TCCR0A = (1 << WGM01);
@@ -64,15 +133,29 @@ int main()
 
     while (true)
     {
-        if (alarmTriggered)
+        switch (alarmState)
         {
-            // Triggered state: Red OFF, Yellow ON
-            PORTB = (1 << PORTB5);
-        }
-        else
-        {
-            // Primed state: Red ON, Yellow OFF
-            PORTB = (1 << PORTB4);
+            case AlarmState::Armed:
+            {
+                // Detection as usual
+                break;
+            }
+            case AlarmState::Disarmed:
+            {
+                // No detection
+                // Green LED
+                break;
+            }
+            case AlarmState::Triggered:
+            {
+                if (!isBuzzerBuzzing)
+                    startBuzzer();
+                
+                if (!isRedLEDBlinking)
+                    startRedLEDBlink();
+
+                break;
+            }
         }
     }
 }
