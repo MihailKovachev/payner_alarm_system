@@ -23,7 +23,7 @@ D8 -> PB0 (keypad 7)
 D9 -> PB1 (keypad 8)
 */
 
-constexpr char disarmingCode[] = {'A', 'A', 'A', 'A'}; // Terrible cybersecurity, I know
+constexpr char disarmingCode[] = {'3', '3', '3', '3', '#'}; // Terrible cybersecurity, I know
 
 enum class AlarmState : uint8_t
 {
@@ -214,7 +214,7 @@ int main()
         {
             uint8_t successfullyDetectedCodeSymbols = 0;
 
-            while (successfullyDetectedCodeSymbols < 5)
+            while (successfullyDetectedCodeSymbols < sizeof(disarmingCode))
             {
                 char key = Keypad::getKeyReleased();
                 if (key != '\0')
