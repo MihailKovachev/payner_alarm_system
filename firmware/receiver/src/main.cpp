@@ -1,19 +1,29 @@
 #include <avr/io.h>
 #include <avr/interrupt.h>
 
+#include "keypad.h"
+
 /*
-IR receiver: TSOP34838 (https://www.vishay.com/docs/82489/tsop322.pdf)
 
-1 period (burst + gap) = 15 + 15 = 30 cycles
-The alarm is triggered when no complete burst is detected for 2 entire periods (60 cycles).
+Board Pin Layout:
 
-t_period = 789.44 us => 1578.88 us of minimum occlusion time to trigger alarm
+D2 -> PD2 (IR receiver)
+D3 -> PD3 (buzzer)
+D13 -> PB5 (red LED)
+D11 -> PB3 (green LED)
 
-f_ctc_int = 1 / (2 * t_period) = 633.36 Hz
-prescaler_min = f_clk / (256 * f_ctc_int) = 99
-prescaler_real = 256
-OCR0A = f_clk / (prescaler_real * f_ctc_int) - 1 = 97
+A5 -> PC5 (keypad 1)
+A4 -> PC4 (keypad 2)
+A3 -> PC3 (keypad 3)
+A2 -> PC2 (keypad 4)
+
+A1 -> PC1 (keypad 5)
+A0 -> PC0 (keypad 6)
+D8 -> PB0 (keypad 7)
+D9 -> PB1 (keypad 8)
 */
+
+constexpr char disarmingCode[] = {'A', 'A', 'A', 'A'}; // Terrible cybersecurity, I know
 
 enum class AlarmState : uint8_t
 {
@@ -23,36 +33,16 @@ enum class AlarmState : uint8_t
 };
 
 volatile uint8_t detectedBurstsCount = 0;
-volatile AlarmState alarmState = AlarmState::Armed;
+volatile AlarmState alarmState = AlarmState::Disarmed;
 volatile bool isBuzzerBuzzing = false;
 volatile bool isRedLEDBlinking = false;
 
-ISR(TIMER0_COMPA_vect)
-{
-    if (detectedBurstsCount < 1)
-    {
-        alarmState = AlarmState::Triggered;
-    }
-
-    detectedBurstsCount = 0;
-
-    // TODO: Arming and disarming logic 
-}
-
-// A falling edge on PD2 (IR receiver output) => 1 complete burst
-ISR(INT0_vect)
-{
-    detectedBurstsCount++;
-}
-
-ISR(TIMER1_COMPA_vect)
-{
-    PINB = (1 << PINB5); // Toggles PORTB5
-}
-
 void startBuzzer()
 {
-    /* 
+    DDRD |= 1 << DDD3;
+    PORTD &= ~(1 << PORTD3);
+
+    /*
     CTC frequency (Sound frequency): f_snd = 3kHz = f_ctc
     prescaler_min = f_clk / (256 * f_ctc) = 21
     prescaler_real = 32
@@ -74,6 +64,9 @@ void startBuzzer()
 
 void startRedLEDBlink()
 {
+    // Configure PB5 (red LED) as output
+    DDRB |= 1 << DDB5;
+    PORTB |= (1 << PORTB5); // red LED off by default since default state is disarmed
     /*
     PB5 does not support hardware PWM => emulation using CTC.
 
@@ -84,78 +77,159 @@ void startRedLEDBlink()
     f_ctc = 1 / t_on = 4 Hz
 
     f_clk / (prescaler * f_ctc) = OCR1A + 1 <= 2^16
-    prescaler_min = f_clk / f_ctc * 65536 = 61
+    prescaler_min = f_clk / (f_ctc * 65536) = 61
     prescaler = 64
     OCR1A = round (f_clk / (prescaler * f_ctc) - 1) = 62499
     */
 
     TCCR1A = 0;
     TCCR1B = (1 << WGM12) | (1 << CS11) | (1 << CS10);
-    TIMSK1 = 1 << OCIE0A;
+    TIMSK1 = 1 << OCIE1A;
     OCR1A = 62499;
     TCNT1 = 0;
 
-    PORTB |= (1 << PORTB5);
+    PORTB &= ~(1 << PORTB5);
     isRedLEDBlinking = true;
 }
 
-int main()
+void armAlarm()
 {
+    alarmState = AlarmState::Armed;
+
     // Configure PD2 (IR receiver output) as input
     DDRD &= ~(1 << DDD2);
     PORTD |= (1 << PORTD2); // Internal pull-up
 
-    // Configure PB5 (red LED) as output
-    DDRB |= 1 << DDB5;
-    PORTB &= ~(1 << PORTB5);
 
-    // Configure PB3 (green LED) as output
-    DDRB |= 1 << DDB3;
-    PORTB |= 1 << PORTB3;
+    PORTB &= ~(1 << PORTB5); // Turn on red LED
+    PORTB |= (1 << PORTB3);  // Turn off green LED
 
-    // Configure PD3 (buzzer) as output
-    DDRD |= 1 << DDD3;
-    PORTD &= ~(1 << PORTD3);
+    /*
+    IR receiver: TSOP34838 (https://www.vishay.com/docs/82489/tsop322.pdf)
 
-    // Timer0 CTC Mode
-    TCCR0A = (1 << WGM01);
-    TCCR0B = (1 << CS02);
-    OCR0A = 98; // T_ctc_int ~ 1.584ms (2 periods)
+    1 period (burst + gap) = 15 + 15 = 30 cycles
+    The alarm is triggered when no complete burst is detected for 2 entire periods (60 cycles).
 
-    // Enable TIMER0_COMPA_vect
-    TIMSK0 = 1 << OCIE0A;
+    t_period = 789.44 us => 1578.88 us of minimum occlusion time to trigger alarm
+
+    f_ctc = 1 / (2 * t_period) = 633.36 Hz
+    prescaler_min = f_clk / (65536 * f_ctc) = 0.39
+    prescaler = 1
+    OCR0A = f_clk / (prescaler * f_ctc) - 1 = 25262
+    */
+
+    // Timer1 CTC Mode
+    TCCR1A = 0;
+    TCCR1B = (1 << WGM12) | (1 << CS10);
+    
+    TIMSK1 = 1 << OCIE1A; // TIMER1_COMPA_vect
+
+    OCR1A = 25262;
+    TCNT1 = 0;
 
     // Configure External Interrupt INT0 on falling edge (ISC01 = 1, ISC00 = 0)
     EICRA |= (1 << ISC01);
     EIMSK |= (1 << INT0);
+}
 
+void disarmAlarm()
+{
+    alarmState = AlarmState::Disarmed;
+
+    // Stop Timer1 (Red LED Blink) and reset flag
+    TIMSK1 = 0;
+    TCCR1B = 0;
+    isRedLEDBlinking = false;
+
+    // Stop Timer2 (Buzzer) and reset flag
+    TCCR2A = 0;
+    TCCR2B = 0;
+    PORTD &= ~(1 << PORTD3); // Ensure buzzer pin is LOW
+    isBuzzerBuzzing = false;
+
+    // Stop Timer0 & INT0 (IR detection)
+    TIMSK0 = 0;
+    EIMSK &= ~(1 << INT0);
+
+    PORTB |= (1 << PORTB5);  // Turn off red LED
+    PORTB &= ~(1 << PORTB3); // Turn on green LED
+}
+
+void triggerAlarm()
+{
+    alarmState = AlarmState::Triggered;
+    if (!isBuzzerBuzzing)
+        startBuzzer();
+
+    if (!isRedLEDBlinking)
+        startRedLEDBlink();
+}
+
+ISR(TIMER1_COMPA_vect)
+{
+    if (alarmState == AlarmState::Armed)
+    {
+        if (detectedBurstsCount < 1)
+        {
+            triggerAlarm();
+        }
+        detectedBurstsCount = 0;
+    }
+    else if (alarmState == AlarmState::Triggered)
+    {
+        PORTB ^= (1 << PORTB5); // Toggles PORTB5 (red LED)
+    }
+}
+
+// A falling edge on PD2 (IR receiver output) => 1 complete burst
+ISR(INT0_vect)
+{
+    if (alarmState == AlarmState::Armed)
+        detectedBurstsCount++;
+}
+
+int main()
+{
+    // Configure PB5 (red LED) as output
+    DDRB |= 1 << DDB5;
+
+    // Configure PB3 (green LED) as output
+    DDRB |= 1 << DDB3;
+
+    Keypad::initializeKeypad();
+
+    disarmAlarm();
     sei();
 
     while (true)
     {
-        switch (alarmState)
+        if (alarmState == AlarmState::Disarmed)
         {
-            case AlarmState::Armed:
-            {
-                // Detection as usual
-                break;
-            }
-            case AlarmState::Disarmed:
-            {
-                // No detection
-                // Green LED
-                break;
-            }
-            case AlarmState::Triggered:
-            {
-                if (!isBuzzerBuzzing)
-                    startBuzzer();
-                
-                if (!isRedLEDBlinking)
-                    startRedLEDBlink();
+            // Poll for the A key ("arming" key)
+            while (Keypad::getKeyReleased() != 'A');
 
-                break;
+            armAlarm();
+        }
+        else
+        {
+            uint8_t successfullyDetectedCodeSymbols = 0;
+
+            while (successfullyDetectedCodeSymbols < 5)
+            {
+                char key = Keypad::getKeyReleased();
+                if (key != '\0')
+                {
+                    if (key == disarmingCode[successfullyDetectedCodeSymbols])
+                    {
+                        successfullyDetectedCodeSymbols++;
+                    }
+                    else
+                    {
+                        successfullyDetectedCodeSymbols = (key == disarmingCode[0]) ? 1 : 0;
+                    }
+                }
             }
+            disarmAlarm();
         }
     }
 }
