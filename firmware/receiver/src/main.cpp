@@ -23,7 +23,7 @@ D8 -> PB0 (keypad 7)
 D9 -> PB1 (keypad 8)
 */
 
-constexpr char disarmingCode[] = {'3', '3', '3', '3', '#'}; // Terrible cybersecurity, I know
+constexpr char disarmingCode[] = {'1', '2', '3', '4', '#'}; // Terrible cybersecurity, I know
 
 enum class AlarmState : uint8_t
 {
@@ -100,7 +100,6 @@ void armAlarm()
     DDRD &= ~(1 << DDD2);
     PORTD |= (1 << PORTD2); // Internal pull-up
 
-
     PORTB &= ~(1 << PORTB5); // Turn on red LED
     PORTB |= (1 << PORTB3);  // Turn off green LED
 
@@ -136,7 +135,7 @@ void disarmAlarm()
 {
     alarmState = AlarmState::Disarmed;
 
-    // Stop Timer1 (Red LED Blink) and reset flag
+    // Stop Timer1 (Red LED Blink / IR detection) and reset flag
     TIMSK1 = 0;
     TCCR1B = 0;
     isRedLEDBlinking = false;
@@ -147,8 +146,7 @@ void disarmAlarm()
     PORTD &= ~(1 << PORTD3); // Ensure buzzer pin is LOW
     isBuzzerBuzzing = false;
 
-    // Stop Timer0 & INT0 (IR detection)
-    TIMSK0 = 0;
+    // Stop TINT0 (IR detection)
     EIMSK &= ~(1 << INT0);
 
     PORTB |= (1 << PORTB5);  // Turn off red LED
@@ -177,7 +175,7 @@ ISR(TIMER1_COMPA_vect)
     }
     else if (alarmState == AlarmState::Triggered)
     {
-        PORTB ^= (1 << PORTB5); // Toggles PORTB5 (red LED)
+        PORTB ^= (1 << PORTB5); // Toggle red LED
     }
 }
 
@@ -205,8 +203,7 @@ int main()
     {
         if (alarmState == AlarmState::Disarmed)
         {
-            // Poll for the A key ("arming" key)
-            while (Keypad::getKeyReleased() != 'A');
+           while (Keypad::getKeyReleased() != 'A');
 
             armAlarm();
         }
@@ -229,6 +226,7 @@ int main()
                     }
                 }
             }
+            
             disarmAlarm();
         }
     }
