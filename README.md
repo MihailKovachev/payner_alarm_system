@@ -4,4 +4,4 @@ An alarm system based on an infrared light tripwire.
 
 ## Demo
 
-![](res/demo.mp4)
+![demo video](res/demo.mp4)
